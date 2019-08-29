@@ -12,7 +12,10 @@ is_atomic: false
 disable_swap: true
 
 ## Change this to use another Kubernetes version, e.g. a current beta release
-kube_version: v1.13.5
+kube_version: v1.15.3
+
+## The minimum version working
+kube_version_min_required: v1.14.0
 
 ## Kube Proxy mode One of ['iptables','ipvs']
 kube_proxy_mode: ipvs
@@ -37,9 +40,13 @@ ignore_assert_errors: false
 # nginx-proxy configure
 nginx_config_dir: "/etc/nginx"
 
+# haproxy configure
+haproxy_config_dir: "/etc/haproxy"
+
 # Directory where the binaries will be installed
 bin_dir: /usr/local/bin
 docker_bin_dir: /usr/bin
+containerd_bin_dir: /usr/bin
 etcd_data_dir: /var/lib/etcd
 # Where the binaries will be downloaded.
 # Note: ensure that you've enough disk space (about 1G)
@@ -55,12 +62,13 @@ epel_enabled: false
 cluster_name: cluster.local
 # Subdomains of DNS domain to be resolved via /etc/resolv.conf for hostnet pods
 ndots: 2
-# Can be dnsmasq_kubedns, kubedns, manual or none
+# Can be coredns, coredns_dual, manual, or none
 dns_mode: coredns
 
 # Enable nodelocal dns cache
-enable_nodelocaldns: False
+enable_nodelocaldns: true
 nodelocaldns_ip: 169.254.25.10
+nodelocaldns_health_port: 9254
 
 # Should be set to a cluster IP if using a custom cluster DNS
 manual_dns_server: ""
@@ -69,19 +77,22 @@ manual_dns_server: ""
 resolvconf_mode: docker_dns
 # Deploy netchecker app to verify DNS resolve as an HTTP service
 deploy_netchecker: false
-# Ip address of the kubernetes skydns service
+# Ip address of the kubernetes DNS service (called skydns for historical reasons)
 skydns_server: "{{ kube_service_addresses|ipaddr('net')|ipaddr(3)|ipaddr('address') }}"
 skydns_server_secondary: "{{ kube_service_addresses|ipaddr('net')|ipaddr(4)|ipaddr('address') }}"
-dnsmasq_dns_server: "{{ kube_service_addresses|ipaddr('net')|ipaddr(2)|ipaddr('address') }}"
 dns_domain: "{{ cluster_name }}"
+
 kube_dns_servers:
-  kubedns: ["{{skydns_server}}"]
   coredns: ["{{skydns_server}}"]
   coredns_dual: "{{[skydns_server] + [ skydns_server_secondary ]}}"
   manual: ["{{manual_dns_server}}"]
-  dnsmasq_kubedns: ["{{dnsmasq_dns_server}}"]
 
 dns_servers: "{{kube_dns_servers[dns_mode]}}"
+
+enable_coredns_k8s_external: false
+coredns_k8s_external_zone: k8s_external.local
+
+enable_coredns_k8s_endpoint_pod_names: false
 
 # Kubernetes configuration dirs and system namespace.
 # Those are where all the additional config stuff goes
@@ -94,6 +105,9 @@ kube_manifest_dir: "{{ kube_config_dir }}/manifests"
 
 # This is where all the cert scripts and certs will be located
 kube_cert_dir: "{{ kube_config_dir }}/ssl"
+
+# compatibility directory for kubeadm
+kube_cert_compat_dir: "/etc/kubernetes/pki"
 
 # This is where all of the bearer tokens will be stored
 kube_token_dir: "{{ kube_config_dir }}/tokens"
@@ -208,17 +222,18 @@ docker_iptables_enabled: "false"
 # Rotate container stderr/stdout logs at 50m and keep last 5
 docker_log_opts: "--log-opt max-size=50m --log-opt max-file=5"
 
-## An obvious use case is allowing insecure-registry access to self hosted registries.
-## Can be ipaddress and domain_name.
-## example define 172.19.16.11 or mirror.registry.io
+## A list of insecure docker registries (IP address or domain name), for example
+## to allow insecure-registry access to self-hosted registries. Empty by default.
 # docker_insecure_registries:
 #   - mirror.registry.io
 #   - 172.19.16.11
+docker_insecure_registries: []
 
-## Add other registry,example China registry mirror.
+## A list of additional registry mirrors, for example China registry mirror. Empty by default.
 # docker_registry_mirrors:
 #   - https://registry.docker-cn.com
 #   - https://mirror.aliyuncs.com
+docker_registry_mirrors: []
 
 ## If non-empty will override default system MounFlags value.
 ## This option takes a mount propagation flag: shared, slave
@@ -228,26 +243,20 @@ docker_log_opts: "--log-opt max-size=50m --log-opt max-file=5"
 # docker_mount_flags:
 
 ## A string of extra options to pass to the docker daemon.
-## This string should be exactly as you wish it to appear.
-docker_options: >-
-  {%- if docker_insecure_registries is defined %}
-  {{ docker_insecure_registries | map('regex_replace', '^(.*)$', '--insecure-registry=\1' ) | list | join(' ') }}
-  {%- endif %}
-  {% if docker_registry_mirrors is defined %}
-  {{ docker_registry_mirrors | map('regex_replace', '^(.*)$', '--registry-mirror=\1' ) | list | join(' ') }}
-  {%- endif %}
-  {%- if docker_version != "latest" and docker_version is version('17.05', '<') %}
-  --graph={{ docker_daemon_graph }} {{ docker_log_opts }}
-  {%- else %}
-  --data-root={{ docker_daemon_graph }} {{ docker_log_opts }}
-  {%- endif %}
-  {%- if ansible_architecture == "aarch64" and ansible_os_family == "RedHat" %}
-  --add-runtime docker-runc=/usr/libexec/docker/docker-runc-current
-  --default-runtime=docker-runc --exec-opt native.cgroupdriver=systemd
-  --userland-proxy-path=/usr/libexec/docker/docker-proxy-current --signature-verification=false
-  {%- endif -%}
+# docker_options: ""
+
+## A list of plugins to install using 'docker plugin install --grant-all-permissions'
+## Empty by default so no plugins will be installed.
+docker_plugins: []
+
+# Experimental kubeadm etcd deployment mode. Available only for new deployment
+etcd_kubeadm_enabled: false
+
+# Containerd options
+containerd_use_systemd_cgroup: false
 
 # Settings for containerized control plane (etcd/kubelet/secrets)
+# deployment type for legacy etcd mode
 etcd_deployment_type: docker
 cert_management: script
 
@@ -274,10 +283,13 @@ registry_enabled: false
 metrics_server_enabled: false
 enable_network_policy: true
 local_volume_provisioner_enabled: "{{ local_volumes_enabled | default('false') }}"
+local_volume_provisioner_directory_mode: 0700
 persistent_volumes_enabled: false
 cephfs_provisioner_enabled: false
+rbd_provisioner_enabled: false
 ingress_nginx_enabled: false
 cert_manager_enabled: false
+expand_persistent_volumes: false
 
 ## When OpenStack is used, Cinder version can be explicitly specified if autodetection fails (Fixed in 1.9: https://github.com/kubernetes/kubernetes/issues/50461)
 # openstack_blockstorage_version: "v1/v2/auto (default)"
@@ -307,7 +319,11 @@ rbac_enabled: "{{ 'RBAC' in authorization_modes }}"
 kubelet_authentication_token_webhook: true
 
 # When enabled, access to the kubelet API requires authorization by delegation to the API server
-kubelet_authorization_mode_webhook: false
+kubelet_authorization_mode_webhook: true
+
+# kubelet uses certificates for authenticating to the Kubernetes API
+# Automatically generate a new key and request a new certificate from the Kubernetes API as the current certificate approaches expiration
+kubelet_rotate_certificates: true
 
 ## v1.11 feature
 feature_gate_v1_11:
@@ -321,11 +337,10 @@ feature_gate_v1_12: []
 ## List of key=value pairs that describe feature gates for
 ## the k8s cluster.
 kube_feature_gates: |-
-  {%- if kube_version is version('v1.12.0', '<') -%}
-  {{ feature_gate_v1_11 }}
-  {%- else -%}
   {{ feature_gate_v1_12 }}
-  {%- endif %}
+
+# Enable kubeadm experimental control plane
+kubeadm_control_plane: false
 
 # Local volume provisioner storage classes
 # Levarages Ansibles string to Python datatype casting. Otherwise the dict_key isn't substituted
@@ -333,8 +348,11 @@ kube_feature_gates: |-
 local_volume_provisioner_storage_classes: |
   {
     "{{ local_volume_provisioner_storage_class | default('local-storage') }}": {
-     "host_dir": "{{ local_volume_provisioner_base_dir | default ('/mnt/disks') }}",
-      "mount_dir": "{{ local_volume_provisioner_mount_dir | default('/mnt/disks') }}"
+      "host_dir": "{{ local_volume_provisioner_base_dir | default ('/mnt/disks') }}",
+      "mount_dir": "{{ local_volume_provisioner_mount_dir | default('/mnt/disks') }}",
+      "volume_mode": "Filesystem",
+      "fs_type": "ext4"
+
     }
   }
 
@@ -362,7 +380,7 @@ contiv_global_neighbor_as: "500"
 fallback_ips_base: |
   ---
   {% for item in groups['k8s-cluster'] + groups['etcd'] + groups['calico-rr']|default([])|unique %}
-  {{item}}: "{{ hostvars[item].get('ansible_default_ipv4', {'address': '127.0.0.1'})['address'] }}"
+  {{ item }}: "{{ hostvars[item].get('ansible_default_ipv4', {'address': '127.0.0.1'})['address'] }}"
   {% endfor %}
 fallback_ips: "{{ fallback_ips_base | from_yaml }}"
 
@@ -375,7 +393,7 @@ no_proxy: >-
   {%- endif -%}
   {%- for item in (groups['k8s-cluster'] + groups['etcd'] + groups['calico-rr']|default([]))|unique -%}
   {{ hostvars[item]['access_ip'] | default(hostvars[item]['ip'] | default(fallback_ips[item])) }},
-  {%-   if item != hostvars[item].get('ansible_hostname', "") -%}
+  {%-   if item != hostvars[item].get('ansible_hostname', '') -%}
   {{ hostvars[item]['ansible_hostname'] }},
   {{ hostvars[item]['ansible_hostname'] }}.{{ dns_domain }},
   {%-   endif -%}
@@ -389,8 +407,11 @@ no_proxy: >-
 
 proxy_env:
   http_proxy: "{{ http_proxy| default ('') }}"
+  HTTP_PROXY: "{{ http_proxy| default ('') }}"
   https_proxy: "{{ https_proxy| default ('') }}"
+  HTTPS_PROXY: "{{ https_proxy| default ('') }}"
   no_proxy: "{{ no_proxy| default ('') }}"
+  NO_PROXY: "{{ no_proxy| default ('') }}"
 
 ssl_ca_dirs: >-
   [
@@ -411,13 +432,14 @@ kube_apiserver_address: "{{ ip | default(fallback_ips[inventory_hostname]) }}"
 kube_apiserver_access_address: "{{ access_ip | default(kube_apiserver_address) }}"
 first_kube_master: "{{ hostvars[groups['kube-master'][0]]['access_ip'] | default(hostvars[groups['kube-master'][0]]['ip'] | default(fallback_ips[groups['kube-master'][0]])) }}"
 loadbalancer_apiserver_localhost: "{{ loadbalancer_apiserver is not defined }}"
+loadbalancer_apiserver_type: "nginx"
 # applied if only external loadbalancer_apiserver is defined, otherwise ignored
 apiserver_loadbalancer_domain_name: "lb-apiserver.kubernetes.local"
 kube_apiserver_endpoint: |-
   {% if loadbalancer_apiserver is defined and loadbalancer_apiserver.port is defined -%}
        https://{{ apiserver_loadbalancer_domain_name|default('lb-apiserver.kubernetes.local') }}:{{ loadbalancer_apiserver.port|default(kube_apiserver_port) }}
   {%- elif not is_kube_master and loadbalancer_apiserver_localhost -%}
-       https://localhost:{{ nginx_kube_apiserver_port|default(kube_apiserver_port) }}
+       https://localhost:{{ loadbalancer_apiserver_port|default(kube_apiserver_port) }}
   {%- elif is_kube_master -%}
        https://{{ kube_apiserver_bind_address | regex_replace('0\.0\.0\.0','127.0.0.1') }}:{{ kube_apiserver_port }}
   {%- else -%}
@@ -486,3 +508,5 @@ pip_extra_args: |-
 
 etcd_config_dir: /etc/ssl/etcd
 etcd_cert_dir: "{{ etcd_config_dir }}/ssl"
+
+typha_enabled: false

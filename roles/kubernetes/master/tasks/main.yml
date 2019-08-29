@@ -19,7 +19,7 @@
 
 - name: Install | Copy kubectl binary from download dir
   synchronize:
-    src: "{{ local_release_dir }}/hyperkube"
+    src: "{{ local_release_dir }}/hyperkube-{{ kube_version }}-{{ image_arch }}"
     dest: "{{ bin_dir }}/kubectl"
     compress: no
     perms: yes
@@ -47,8 +47,9 @@
   when: ansible_os_family in ["Debian","RedHat"]
   tags:
     - kubectl
+  ignore_errors: True
 
-- name: Set kubectl bash completion file
+- name: Set kubectl bash completion file permissions
   file:
     path: /etc/bash_completion.d/kubectl.sh
     owner: root
@@ -58,6 +59,7 @@
   tags:
     - kubectl
     - upgrade
+  ignore_errors: True
 
 - name: Disable SecurityContextDeny admission-controller and enable PodSecurityPolicy
   set_fact:
@@ -67,3 +69,7 @@
 
 - name: Include kubeadm setup
   import_tasks: kubeadm-setup.yml
+
+- name: Include kubeadm etcd extra tasks
+  include_tasks: kubeadm-etcd.yml
+  when: etcd_kubeadm_enabled

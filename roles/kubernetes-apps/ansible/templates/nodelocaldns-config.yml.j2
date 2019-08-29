@@ -10,7 +10,10 @@ data:
   Corefile: |
     {{ dns_domain }}:53 {
         errors
-        cache 30
+        cache {
+            success 9984 30
+            denial 9984 5
+        }
         reload
         loop
         bind {{ nodelocaldns_ip }}
@@ -18,7 +21,7 @@ data:
             force_tcp
         }
         prometheus :9253
-        health {{ nodelocaldns_ip }}:8080
+        health {{ nodelocaldns_ip }}:{{ nodelocaldns_health_port }}
     }
     in-addr.arpa:53 {
         errors
@@ -48,8 +51,6 @@ data:
         reload
         loop
         bind {{ nodelocaldns_ip }}
-        forward . {{ upstreamForwardTarget }} {
-            force_tcp
-        }
+        forward . {{ upstreamForwardTarget }}
         prometheus :9253
     }
