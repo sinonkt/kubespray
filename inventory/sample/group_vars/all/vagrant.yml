@@ -1,0 +1,18 @@
+vagrant:
+  cpus: 2
+  memory: 3072
+  gui: false
+  os: "centos"
+  disk:
+    override_disk_size: true
+    disk_size: "50GB"
+  # disks:
+  #   num_disks: 2
+  #   disk_size: "30GB"
+  shared_folders:
+    # - src:
+    #   dest:
+  forwarded_ports:
+    # - guest:
+    #   host:
+  # expose_docker_tcp: 22475
