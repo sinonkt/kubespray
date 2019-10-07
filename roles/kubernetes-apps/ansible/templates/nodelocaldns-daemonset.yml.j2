@@ -19,15 +19,15 @@ spec:
         prometheus.io/scrape: 'true'
         prometheus.io/port: '9253'
     spec:
-{% if kube_version is version('v1.11.1', '>=') %}
       priorityClassName: system-cluster-critical
-{% endif %}
       serviceAccountName: nodelocaldns
       hostNetwork: true
       dnsPolicy: Default  # Don't use cluster DNS.
       tolerations:
-      - key: node-role.kubernetes.io/master
-        effect: NoSchedule
+      - effect: NoSchedule
+        operator: "Exists"
+      - effect: NoExecute
+        operator: "Exists"
       - key: "CriticalAddonsOnly"
         operator: "Exists"
       containers:
@@ -56,12 +56,20 @@ spec:
           httpGet:
             host: {{ nodelocaldns_ip }}
             path: /health
-            port: 8080
+            port: {{ nodelocaldns_health_port }}
             scheme: HTTP
-          initialDelaySeconds: 60
           timeoutSeconds: 5
           successThreshold: 1
-          failureThreshold: 3
+          failureThreshold: 10
+        readinessProbe:
+          httpGet:
+            host: {{ nodelocaldns_ip }}
+            path: /health
+            port: {{ nodelocaldns_health_port }}
+            scheme: HTTP
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 10
         volumeMounts:
         - name: config-volume
           mountPath: /etc/coredns

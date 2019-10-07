@@ -10,12 +10,9 @@
   run_once: yes
 
 - name: "Get current version of calico cluster version"
-  shell: "{{ bin_dir }}/calicoctl version  | grep 'Cluster Version:' | awk '{ print $3}'"
+  shell: "{{ bin_dir }}/calicoctl.sh version  | grep 'Cluster Version:' | awk '{ print $3}'"
   register: calico_version_on_server
   run_once: yes
-  delegate_to: "{{ groups['kube-master'][0] }}"
-  async: 10
-  poll: 3
   changed_when: false
 
 - name: "Determine if calico upgrade is needed"
@@ -35,7 +32,7 @@
         - calico_version_on_server.stdout is version('v3.0.0', '<')
 
   when:
-    - 'calico_version_on_server.stdout is defined'
-    - 'calico_version_on_server.stdout != ""'
+    - calico_version_on_server.stdout is defined
+    - calico_version_on_server.stdout
     - inventory_hostname == groups['kube-master'][0]
   run_once: yes

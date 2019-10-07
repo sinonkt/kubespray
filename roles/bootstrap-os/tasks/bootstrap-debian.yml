@@ -1,20 +1,19 @@
 ---
+# Some Debian based distros ship without Python installed
+
 - name: Check if bootstrap is needed
-  raw: which "{{ item }}"
+  raw: which python
   register: need_bootstrap
   failed_when: false
   changed_when: false
   # This command should always run, even in check mode
   check_mode: false
-  with_items:
-    - python
-    - pip
-    - dbus-daemon
   environment: {}
-  tags: facts
+  tags:
+    - facts
 
-- name: Check http::proxy in /etc/apt/apt.conf
-  raw: grep -qsi 'Acquire::http::proxy' /etc/apt/apt.conf
+- name: Check http::proxy in apt configuration files
+  raw: apt-config dump | grep -qsi 'Acquire::http::proxy'
   register: need_http_proxy
   failed_when: false
   changed_when: false
@@ -32,8 +31,8 @@
     - http_proxy is defined
     - need_http_proxy.rc != 0
 
-- name: Check https::proxy in /etc/apt/apt.conf
-  raw: grep -qsi 'Acquire::https::proxy' /etc/apt/apt.conf
+- name: Check https::proxy in apt configuration files
+  raw: apt-config dump | grep -qsi 'Acquire::https::proxy'
   register: need_https_proxy
   failed_when: false
   changed_when: false
@@ -51,15 +50,32 @@
     - https_proxy is defined
     - need_https_proxy.rc != 0
 
-- name: Install python, pip, and dbus
-  raw:
-    apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y python-minimal python-pip dbus
+- name: Change Network Name Resolution configuration
+  raw: sed -i 's/^DNSSEC=yes/DNSSEC=allow-downgrade/g' /etc/systemd/resolved.conf
   become: true
   environment: {}
   when:
-    need_bootstrap.results | map(attribute='rc') | sort | last | bool
+    - '"bionic" in os_release.stdout'
 
-- set_fact:
-    ansible_python_interpreter: "/usr/bin/python"
-  tags: facts
+- name: Restart systemd-resolved service
+  raw: systemctl restart systemd-resolved
+  become: true
+  environment: {}
+  when:
+    - '"bionic" in os_release.stdout'
+
+- name: Install python
+  raw:
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y python-minimal
+  become: true
+  environment: {}
+  when:
+    - need_bootstrap.rc != 0
+
+# Workaround for https://github.com/ansible/ansible/issues/25543
+- name: Install dbus for the hostname module
+  package:
+    name: dbus
+    state: present
+  become: true

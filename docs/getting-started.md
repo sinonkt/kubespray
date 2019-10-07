@@ -6,7 +6,7 @@ Building your own inventory
 
 Ansible inventory can be stored in 3 formats: YAML, JSON, or INI-like. There is
 an example inventory located
-[here](https://github.com/kubernetes-sigs/kubespray/blob/master/inventory/sample/hosts.ini).
+[here](https://github.com/kubernetes-sigs/kubespray/blob/master/inventory/sample/inventory.ini).
 
 You can use an
 [inventory generator](https://github.com/kubernetes-sigs/kubespray/blob/master/contrib/inventory_builder/inventory.py)
@@ -20,7 +20,9 @@ Example inventory generator usage:
 
     cp -r inventory/sample inventory/mycluster
     declare -a IPS=(10.10.1.3 10.10.1.4 10.10.1.5)
-    CONFIG_FILE=inventory/mycluster/hosts.ini python3 contrib/inventory_builder/inventory.py ${IPS[@]}
+    CONFIG_FILE=inventory/mycluster/hosts.yml python3 contrib/inventory_builder/inventory.py ${IPS[@]}
+
+Then use `inventory/mycluster/hosts.yml` as inventory file.
 
 Starting custom deployment
 --------------------------
@@ -30,7 +32,7 @@ and start the deployment:
 
 **IMPORTANT**: Edit my\_inventory/groups\_vars/\*.yaml to override data vars:
 
-    ansible-playbook -i inventory/mycluster/hosts.ini cluster.yml -b -v \
+    ansible-playbook -i inventory/mycluster/hosts.yml cluster.yml -b -v \
       --private-key=~/.ssh/private_key
 
 See more details in the [ansible guide](ansible.md).
@@ -43,25 +45,32 @@ You may want to add worker, master or etcd nodes to your existing cluster. This 
 -   Add the new worker node to your inventory in the appropriate group (or utilize a [dynamic inventory](https://docs.ansible.com/ansible/intro_dynamic_inventory.html)).
 -   Run the ansible-playbook command, substituting `cluster.yml` for `scale.yml`:
 
-        ansible-playbook -i inventory/mycluster/hosts.ini scale.yml -b -v \
+        ansible-playbook -i inventory/mycluster/hosts.yml scale.yml -b -v \
           --private-key=~/.ssh/private_key
 
 Remove nodes
 ------------
 
-You may want to remove **worker** nodes to your existing cluster. This can be done by re-running the `remove-node.yml` playbook. First, all nodes will be drained, then stop some kubernetes services and delete some certificates, and finally execute the kubectl command to delete these nodes. This can be combined with the add node function, This is generally helpful when doing something like autoscaling your clusters. Of course if a node is not working, you can remove the node and install it again.
+You may want to remove **master**, **worker**, or **etcd** nodes from your
+existing cluster. This can be done by re-running the `remove-node.yml`
+playbook. First, all specified nodes will be drained, then stop some
+kubernetes services and delete some certificates,
+and finally execute the kubectl command to delete these nodes.
+This can be combined with the add node function. This is generally helpful
+when doing something like autoscaling your clusters. Of course, if a node
+is not working, you can remove the node and install it again.
 
-Add worker nodes to the list under kube-node if you want to delete them (or utilize a [dynamic inventory](https://docs.ansible.com/ansible/intro_dynamic_inventory.html)).
-
-    ansible-playbook -i inventory/mycluster/hosts.ini remove-node.yml -b -v \
-        --private-key=~/.ssh/private_key
-
-Use `--extra-vars "node=<nodename>,<nodename2>"` to select the node you want to delete.
+Use `--extra-vars "node=<nodename>,<nodename2>"` to select the node(s) you want to delete.
 ```
-ansible-playbook -i inventory/mycluster/hosts.ini remove-node.yml -b -v \
+ansible-playbook -i inventory/mycluster/hosts.yml remove-node.yml -b -v \
   --private-key=~/.ssh/private_key \
   --extra-vars "node=nodename,nodename2"
 ```
+
+If a node is completely unreachable by ssh, add `--extra-vars reset_nodes=no`
+to skip the node reset step. If one node is unavailable, but others you wish
+to remove are able to connect via SSH, you could set reset_nodes=no as a host
+var in inventory.
 
 Connecting to Kubernetes
 ------------------------
