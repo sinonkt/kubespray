@@ -39,7 +39,7 @@ etcd:
   local:
     imageRepository: "{{ etcd_image_repo | regex_replace("/etcd$","") }}"
     imageTag: "{{ etcd_image_tag }}"
-    dataDir: "/var/lib/etcd"
+    dataDir: "{{ etcd_data_dir }}"
     extraArgs:
       metrics: {{ etcd_metrics }}
       election-timeout: "{{ etcd_election_timeout }}"
@@ -91,7 +91,6 @@ controlPlaneEndpoint: {{ ip | default(fallback_ips[inventory_hostname]) }}:{{ ku
 {% endif %}
 certificatesDir: {{ kube_cert_dir }}
 imageRepository: {{ kube_image_repo }}
-useHyperKubeImage: {{ kubeadm_use_hyperkube_image }}
 apiServer:
   extraArgs:
 {% if kube_api_anonymous_auth is defined %}
